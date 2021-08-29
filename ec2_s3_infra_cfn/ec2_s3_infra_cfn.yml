@@ -140,28 +140,6 @@ Resources:
   
   
 
-
-  Pub1aControlInstance:
-    Type: AWS::EC2::Instance
-    DeletionPolicy: Delete
-    Properties:
-      ImageId: ami-09ebacdc178ae23b7
-      InstanceType: t2.micro
-      KeyName: !Ref EC2InstanceKeyName
-      SubnetId: !Ref PubSubnet1A
-      BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            VolumeSize: 8
-            VolumeType: gp2
-      IamInstanceProfile:
-        !Ref S3AccessInstanceProfile
-      SecurityGroupIds: 
-        - !Ref Pub1aEC2Sg
-      Tags:
-          - Key: Name
-            Value: Controll_jenkins_server
-
 #################################
   Pub1aTargetInstance:
     Type: AWS::EC2::Instance
