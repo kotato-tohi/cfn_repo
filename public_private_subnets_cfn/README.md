@@ -1,0 +1,2 @@
+# public_private_subnets_cfn
+PublicサブネットとPrivateサブネットを作成しそれぞれにEC2インスタンスを構築する

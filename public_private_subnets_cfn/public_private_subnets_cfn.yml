@@ -1,0 +1,187 @@
+# EC2-RDS環境の構築
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  EC2KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH public key
+  
+
+
+
+Resources: 
+# VPC作成
+  BaseVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2VPC
+      
+
+# igw作成
+  BaseVPCIgw:
+    Type: AWS::EC2::InternetGateway
+    # Properties:
+    #   Tags:
+    #     - Key: Name
+    #       Value: tier2Igw
+
+#  igwのアタッチ     
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref BaseVPC
+      InternetGatewayId: !Ref BaseVPCIgw
+
+# public subnet 作成
+  BasePubSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref BaseVPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: 'true'
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2_pub_1a
+
+# pribate subnet 作成
+  BasePriSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref BaseVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: 'false'
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2_pri_1c
+
+
+# NatGatewayの作成
+  BaseVPCNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt BaseVPCEIP.AllocationId
+      ConnectivityType: public
+      SubnetId: !Ref BasePubSubnet1a # Required
+
+
+#EIPの作成
+
+  BaseVPCEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  
+
+# PublicSubnet用ルートテーブル作成
+  BaseVPCPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref BaseVPC
+      # Tags:
+      #   - Key: Name
+      #     Value: tire2VPC
+
+# PrivateSubnet用ルートテーブル作成
+  BaseVPCPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref BaseVPC
+
+#ルート追加 インターネット向け
+  BaseVPCPubRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref BaseVPCPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref BaseVPCIgw
+
+# Natゲートウェイ向け
+  BaseVPCPriRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref BaseVPCPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref BaseVPCNatGateway
+  
+# ルートテーブルをパブリックサブネットに紐付け
+  BaseVPCPubRouteAssocPubSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BasePubSubnet1a
+      RouteTableId: !Ref BaseVPCPublicRouteTable
+
+
+  BaseVPCPubRouteAssocPriSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BasePriSubnet1a
+      RouteTableId: !Ref BaseVPCPrivateRouteTable
+
+# セキュリティグループ作成
+  BasePubSubnetSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: public Server sg
+      VpcId: !Ref BaseVPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 118.87.184.121/32}
+
+
+
+# セキュリティグループ作成
+  BasePriSubnetSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: private Server sg
+      VpcId: !Ref BaseVPC
+      SecurityGroupIngress:
+        - { IpProtocol: -1, SourceSecurityGroupId: !Ref BasePubSubnetSg}
+
+
+
+# EC2インスタンス作成
+  BasePubEC2Instance:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Delete
+    Properties:
+      ImageId: ami-09ebacdc178ae23b7
+      InstanceType: t2.micro
+      KeyName: !Ref EC2KeyName
+      SubnetId: !Ref BasePubSubnet1a
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+
+      SecurityGroupIds: 
+        - !Ref BasePubSubnetSg
+
+# EC2インスタンス作成
+  BasePriEC2Instance:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Delete
+    Properties:
+      ImageId: ami-09ebacdc178ae23b7
+      InstanceType: t2.micro
+      KeyName: !Ref EC2KeyName
+      SubnetId: !Ref BasePriSubnet1a
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+
+      SecurityGroupIds: 
+        - !Ref BasePriSubnetSg
