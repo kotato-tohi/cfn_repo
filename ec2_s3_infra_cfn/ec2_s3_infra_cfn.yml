@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  EC2InstanceKeyName:
+    Description: SSH publick key
+    Type: AWS::EC2::KeyPair::KeyName
+  
+  S3BucketName:
+    Description: Type of this BacketName.
+    Type: String
+
+ 
+Resources:
+  #VPC作成
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+
+  Igw:
+    Type: AWS::EC2::InternetGateway
+
+  AttachIgw:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Igw
+
+
+  PubSubnet1A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: 'true'
+  
+  PubRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachIgw
+    Properties:
+      VpcId: !Ref Vpc
+
+    
+  AddPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIgw
+    Properties:
+      RouteTableId: !Ref PubRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+
+
+  PublicRouteTableAssocPub1A:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnet1A
+      RouteTableId: !Ref PubRouteTable
+    
+
+  Pub1aEC2Sg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public Subnet SG
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: inbound for ssh
+          FromPort: 22
+          IpProtocol: tcp
+          ToPort: 22
+
+        - CidrIp: 0.0.0.0/0
+          Description: inbound for ssh
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+
+        - CidrIp: 118.87.184.121/32
+          Description: inbound for http
+          FromPort: 8080
+          IpProtocol: tcp
+          ToPort: 8080
+
+
+#################################
+
+  S3AccessRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+
+
+
+  S3AccessPolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: s3access-cfn
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - "s3:ListAllMyBuckets"
+            - "s3:GetBucketLocation"
+          Resource: "arn:aws:s3:::*"
+        - Effect: Allow
+          Action: "*"
+          Resource: 
+            - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref 'S3Bucket'
+            - !Join
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref 'S3Bucket'
+                - '/*'
+      Roles:
+      - !Ref S3AccessRole
+
+
+  S3AccessInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - !Ref S3AccessRole
+  
+  
+
+
+  Pub1aControlInstance:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Delete
+    Properties:
+      ImageId: ami-09ebacdc178ae23b7
+      InstanceType: t2.micro
+      KeyName: !Ref EC2InstanceKeyName
+      SubnetId: !Ref PubSubnet1A
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+      IamInstanceProfile:
+        !Ref S3AccessInstanceProfile
+      SecurityGroupIds: 
+        - !Ref Pub1aEC2Sg
+      Tags:
+          - Key: Name
+            Value: Controll_jenkins_server
+
+#################################
+  Pub1aTargetInstance:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Delete
+    Properties:
+      ImageId: ami-09ebacdc178ae23b7
+      InstanceType: t2.micro
+      KeyName: !Ref EC2InstanceKeyName
+      SubnetId: !Ref PubSubnet1A
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+
+      SecurityGroupIds: 
+        - !Ref Pub1aEC2Sg
+      Tags:
+        - Key: Name
+          Value: Rails_app_server
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${S3BucketName}
+      AccessControl: Private
+    # PublicAccessBlockConfiguration:
+    #   BlockPublicAcls: True
+    #   BlockPublicPolicy: True
+    #   IgnorePublicAcls: True
+    #   RestrictPublicBuckets: True
