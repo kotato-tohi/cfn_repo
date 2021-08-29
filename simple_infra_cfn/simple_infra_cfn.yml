@@ -1,0 +1,172 @@
+# EC2-RDS環境の構築
+
+AWSTemplateFormatVersion: 2010-09-09
+
+# テンプレートの作成時に入力または、コマンド実行時に渡す。
+Parameters:
+  EC2InstanceKeyName:
+    Description: SSH publick key
+    Type: AWS::EC2::KeyPair::KeyName
+
+  RDSMasterUser:
+    Description: RDS Master User
+    Type: String
+
+  RDSMasterUserPassword:
+    Description: RDS Master UserPassword
+    Type: String
+
+
+Resources: 
+# VPC作成
+  tier2VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: tier2VPC
+
+# igw作成
+  tier2Igw:
+    Type: AWS::EC2::InternetGateway
+    # Properties:
+    #   Tags:
+    #     - Key: Name
+    #       Value: tier2Igw
+#  igwのアタッチ     
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref tier2VPC
+      InternetGatewayId: !Ref tier2Igw
+
+# public subnet 作成
+  tire2Pub1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      
+      VpcId: !Ref tier2VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: 'true'
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2_pub_1a
+
+# pribate subnet 作成
+  tire2Pri1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref tier2VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: 'false'
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2_pri_1c
+
+# RDSのSubnetGroup作成のために2つ目のサブネットを作成
+  tire2Pri1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref tier2VPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: 'false'
+
+# ルートテーブル作成
+  tire2PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref tier2VPC
+      # Tags:
+      #   - Key: Name
+      #     Value: tire2VPC
+
+#ルート追加
+  tire2PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref tire2PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref tier2Igw
+  
+# ルートテーブルをパブリックサブネットに紐付け
+  tire2PublicRouteTableAssoctire2Pub1a:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref tire2Pub1a
+      RouteTableId: !Ref tire2PublicRouteTable
+
+# セキュリティグループ作成
+  tire2Pub1aEC2Sg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AP Server sg
+      VpcId: !Ref tier2VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, CidrIp: 118.87.184.121/32} #for jenkins
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0} #fof ssh
+
+
+
+# RDSセキュリティグループ作成
+  tire2Pub1cRDSSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB Server sg
+      VpcId: !Ref tier2VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref tire2Pub1aEC2Sg}
+
+
+# EC2インスタンス作成
+  tire2Pub1aAPInstance:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Delete
+    Properties:
+      ImageId: ami-09ebacdc178ae23b7
+      InstanceType: t2.micro
+      KeyName: !Ref EC2InstanceKeyName
+      SubnetId: !Ref tire2Pub1a
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+
+      SecurityGroupIds: 
+        - !Ref tire2Pub1aEC2Sg
+
+# RDS用サブネットグループの作成
+  tire2Pub1aDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Tier2 client DB SubnetGroup"
+      DBSubnetGroupName: "tire2Pub1aDBSubnetGroup"  
+      SubnetIds: 
+        - !Ref tire2Pri1a
+        - !Ref tire2Pri1c
+
+
+# RDSインスタンスの作成        
+  tire2Pub1aDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: tire2Pub1cDB
+      Engine: MySQL
+      DBInstanceClass: db.t2.micro
+      EngineVersion: 8.0.23
+      AllocatedStorage: 20
+      StorageType: gp2
+      MasterUsername: !Ref RDSMasterUser
+      MasterUserPassword: !Ref RDSMasterUserPassword
+      DBSubnetGroupName: !Ref tire2Pub1aDBSubnetGroup
+      PubliclyAccessible: false
+      AvailabilityZone: ap-northeast-1c
+      VPCSecurityGroups:
+        - !Ref tire2Pub1cRDSSg
