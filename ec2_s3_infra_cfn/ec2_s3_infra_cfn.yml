@@ -35,7 +35,39 @@ Resources:
       VpcId: !Ref Vpc
       CidrBlock: 10.0.0.0/24
       MapPublicIpOnLaunch: 'true'
+
+  # private subnet 作成
+  PriSubnet1A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: 'false'
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2_pri_1c
+
+# RDSのSubnetGroup作成のために2つ目のサブネットを作成
+  PriSubnet1C:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: 'false'
+
+  RDSSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB Server sg
+      VpcId: !Ref tier2VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref Pub1aEC2Sg}
+
   
+
+
   PubRouteTable:
     Type: AWS::EC2::RouteTable
     DependsOn: AttachIgw

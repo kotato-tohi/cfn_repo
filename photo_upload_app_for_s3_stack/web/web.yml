@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+
+  EC2InstanceKeyName:
+    Description: SSH publick key
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: common_key
+
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  SystemName:
+    Type: String
+    Default: web
+    AllowedPattern: ^web$
+  NetworkStack:
+    Type: String
+  SecurityStack:
+    Type: String
+  WebStack:
+    Type: String
+  ImageId:
+    Type: AWS::EC2::Image::Id
+  S3BucketName:
+    Type: String
+  AlbCidr:
+    Type: String
+    AllowedPattern: ^(([1-9]?[0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([1-9]?[0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([1-2]?[0-9]|3[0-2])$
+    Default: 0.0.0.0/0
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Metadata
+        Parameters:
+          - Env
+          - SystemName
+      - Label:
+          default: Dependent Stacks
+        Parameters:
+          - NetworkStack
+
+Resources:
+  # LoadBalancer
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${SystemName}-${Env}-alb
+      Type: application
+      Scheme: internet-facing
+      Subnets:
+        - Fn::ImportValue:
+            !Sub ${NetworkStack}-PublicSubnet-1a
+        - Fn::ImportValue:
+            !Sub ${NetworkStack}-PublicSubnet-1c
+      SecurityGroups:
+        - Fn::ImportValue:
+            !Sub ${SecurityStack}-SgAlb
+
+  ## Listener
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref Tg
+  # Target Group
+  Tg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${SystemName}-${Env}-tg
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStack}-Vpc
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      Targets:
+        - Id: !Ref PrivateInstance1a
+        - Id: !Ref PrivateInstance1c
+        
+  # Instance
+  ## Private Subnet Instance
+  PrivateInstance1a:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      SubnetId:
+        Fn::ImportValue:
+            !Sub ${NetworkStack}-PrivateSubnet-1a
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub ${SecurityStack}-SgInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-private-instance-1a
+
+  PrivateInstance1c:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      SubnetId:
+        Fn::ImportValue:
+            !Sub ${NetworkStack}-PrivateSubnet-1c
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub ${SecurityStack}-SgInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-private-instance-1c
+
+  PublicInstance1a:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      KeyName: !Ref EC2InstanceKeyName
+      SubnetId:
+        Fn::ImportValue:
+            !Sub ${NetworkStack}-PublicSubnet-1a
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub ${SecurityStack}-SgBastionInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-public-instance-1a
+  
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${SystemName}-${Env}-${S3BucketName}
+      AccessControl: Private
+    # PublicAccessBlockConfiguration:
+    #   BlockPublicAcls: True
+    #   BlockPublicPolicy: True
+    #   IgnorePublicAcls: True
+    #   RestrictPublicBuckets: True
+
+
+  # RDS
+  ## 

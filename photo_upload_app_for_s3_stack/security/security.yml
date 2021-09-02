@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+
+  EC2InstanceKeyName:
+    Description: SSH public key
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: common_key
+
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  SystemName:
+    Type: String
+    Default: web
+    AllowedPattern: ^web$
+  NetworkStack:
+    Type: String
+  WebStack:
+    Type: String
+  ImageId:
+    Type: AWS::EC2::Image::Id
+  S3BucketName:
+    Type: String
+  AlbCidr:
+    Type: String
+    AllowedPattern: ^(([1-9]?[0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([1-9]?[0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([1-2]?[0-9]|3[0-2])$
+    Default: 0.0.0.0/0
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Metadata
+        Parameters:
+          - Env
+          - SystemName
+      - Label:
+          default: Dependent Stacks
+        Parameters:
+          - NetworkStack
+
+Resources:
+  # Security Group
+    ## LoadBalancer
+    SgAlb:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: !Sub ${SystemName}-${Env}-alb-sg
+        GroupDescription: !Sub ${SystemName}-${Env}-alb-sg
+        VpcId:
+          Fn::ImportValue:
+            !Sub ${NetworkStack}-Vpc
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: !Ref AlbCidr
+        Tags:
+          - Key: Name
+            Value: !Sub ${SystemName}-${Env}-alb-sg
+    ## Instance
+    SgInstance:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: !Sub ${SystemName}-${Env}-instance-sg
+        GroupDescription: !Sub ${SystemName}-${Env}-instance-sg
+        VpcId:
+          Fn::ImportValue:
+            !Sub ${NetworkStack}-Vpc
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            SourceSecurityGroupId: !Ref SgAlb
+
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            SourceSecurityGroupId: !Ref SgBastionInstance
+        Tags:
+          - Key: Name
+            Value: !Sub ${SystemName}-${Env}-instance-sg
+
+    SgBastionInstance:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: !Sub ${SystemName}-${Env}-bastion-instance-sg
+        GroupDescription: !Sub ${SystemName}-${Env}-instance-sg
+        VpcId:
+          Fn::ImportValue:
+            !Sub ${NetworkStack}-Vpc
+        SecurityGroupIngress:
+          - CidrIp: 0.0.0.0/0
+            Description: inbound for ssh
+            FromPort: 22
+            IpProtocol: tcp
+            ToPort: 22
+        Tags:
+          - Key: Name
+            Value: !Sub ${SystemName}-${Env}-instance-sg
+    
+
+
+    #IAM
+    ## S3 Access Role
+    S3AccessRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement: 
+            - 
+              Effect: "Allow"
+              Principal: 
+                Service: 
+                  - "ec2.amazonaws.com"
+              Action: 
+                - "sts:AssumeRole"
+        Path: "/"
+      
+    S3AccessPolicies:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: s3access-cfn
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+              - "s3:ListAllMyBuckets"
+              - "s3:GetBucketLocation"
+            Resource: "arn:aws:s3:::*"
+          - Effect: Allow
+            Action: "*"
+            Resource: 
+              - !Join
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - !Sub ${S3BucketName}
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Sub ${S3BucketName}
+                  - '/*'
+        Roles:
+        - !Ref S3AccessRole
+
+
+    S3AccessInstanceProfile:
+      Type: AWS::IAM::InstanceProfile
+      Properties:
+        Path: "/"
+        Roles:
+        - !Ref S3AccessRole
+  
+
+Outputs:
+  SgAlb:
+    Value: !Ref SgAlb
+    Export:
+      Name: !Sub ${AWS::StackName}-SgAlb
+  
+  SgInstance:
+    Value: !Ref SgInstance
+    Export:
+      Name: !Sub ${AWS::StackName}-SgInstance
+
+  SgBastionInstance:
+    Value: !Ref SgBastionInstance
+    Export:
+      Name: !Sub ${AWS::StackName}-SgBastionInstance
