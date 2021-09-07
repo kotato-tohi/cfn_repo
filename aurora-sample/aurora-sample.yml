@@ -1,0 +1,301 @@
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  EC2KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH public key
+
+  SystemName:
+    Type: String
+    Default: aurora
+
+  Env:
+    Type: String
+    Default: dev
+
+  AuroraUsername:
+    Type: String
+
+  AuroraPassword:
+    Type: String
+
+  DBBaseName:
+    Type: String
+    Default: aurora
+    
+
+Resources: 
+#--------------------#
+# Vpc                 
+#--------------------#
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-vpc
+
+#--------------------#
+# Internet Gateway                
+#--------------------#
+## igw作成
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+        Tags:
+          - Key: Name
+            Value: !Sub ${SystemName}-${Env}-igw
+
+## igwのアタッチ     
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Igw
+
+  #--------------------#
+  # PublicSubnets
+  #--------------------#
+
+  ## PublicSubnet1 1a
+  PublicSubnet1AZ1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.10.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet1-1a
+
+  ## PublicSubnet1 1c
+  PublicSubnet1AZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.20.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet1-1c
+
+  ## PublicSubnet1 1d
+  PublicSubnet1AZ1d:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1d
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.30.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet1-1d
+
+  #--------------------#
+  # PrivateSubnets
+  #--------------------#
+
+  ## PrivateSubnet1 1a
+  PrivateSubnet1AZ1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.13.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet1-1a
+
+  ## PrivateSubnet1 1c        
+  PrivateSubnet1AZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.23.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet1-1c
+  
+  ## PrivateSubnet1 1d        
+  PrivateSubnet1AZ1d:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1d
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.33.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet1-1d
+
+  #--------------------#
+  # RouteTables
+  #--------------------#
+
+  ## Public用ルートテーブル
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-public-route-table
+
+  ## Public用デフォルトルート
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+
+  ## RouteTable紐付け
+  RouteTableAssocToPublicSubnet1a:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1AZ1a
+      RouteTableId: !Ref PublicRouteTable
+    
+  #--------------------#
+  # Security Group
+  #--------------------#
+
+  ## Public Subnet SecurityGroup
+  SgForPublicSubnetEC2Instance:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Env}-${SystemName}-Sg-EC2Instance
+      GroupDescription: Public Subnet Inbound Rules
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: 
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          Description: ssh access from internet
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${SystemName}-Sg-EC2Instance
+
+  ## Private Subnet SecurityGroup For DBInstance
+  SgForPrivateSubnetRDSInstance:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Env}-${SystemName}-Sg-aurora
+      GroupDescription: Private Subunet Inbound Rules
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref SgForPublicSubnetEC2Instance
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          Description: mysql access from public subnet instance
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${SystemName}-Sg-aurora
+
+  #--------------------#
+  # EC2 Instances
+  #--------------------#
+
+  ## EC2Instacne 1a
+  Ec2Instance1a:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-09ebacdc178ae23b7
+      InstanceType: t2.micro
+      KeyName: !Ref EC2KeyName
+      SubnetId: !Ref PublicSubnet1AZ1a
+      SecurityGroupIds: 
+        - !Ref SgForPublicSubnetEC2Instance
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${SystemName}-public-instance-1a
+
+  ## EC2Instacne 1c
+  Ec2Instance1c:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-09ebacdc178ae23b7
+      InstanceType: t2.micro
+      KeyName: !Ref EC2KeyName
+      SubnetId: !Ref PublicSubnet1AZ1c
+      SecurityGroupIds: 
+        - !Ref SgForPublicSubnetEC2Instance
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${SystemName}-public-instance-1c
+
+  #--------------------#
+  # RDS Aurora
+  #--------------------#
+
+  ## SubnetGroup 1a/1c/1d
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS Subnet Group ap-northeast-1a/1c/1d
+      SubnetIds:
+        - !Ref PrivateSubnet1AZ1a
+        - !Ref PrivateSubnet1AZ1c
+        - !Ref PrivateSubnet1AZ1d
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${SystemName}-Rds-SubnetGroup
+
+  ## Cluster
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: 5.7.12
+      MasterUsername: !Ref AuroraUsername
+      MasterUserPassword: !Ref AuroraPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DatabaseName: !Sub DBBaseName
+      VpcSecurityGroupIds:
+        - !Ref SgForPrivateSubnetRDSInstance
+
+  # 1つのプライマリインスタンスと3つのリーダーインスタンスを作成する
+  ## プライマリInstance
+  DBInstance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: db.t3.small
+      # DBSubnetGroupName: !Ref DBSubnetGroup  
+
+  ## リーダーインスタンス(リードレプリカ)
+  DBInstance2:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: db.t3.small
+      # DBSubnetGroupName: !Ref DBSubnetGroup
+
+  ## リーダーインスタンス(リードレプリカ)
+  DBInstance3:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: db.t3.small
+      # DBSubnetGroupName: !Ref DBSubnetGroup
+
+  ## リーダーインスタンス(リードレプリカ)
+  DBInstance4:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: db.t3.small
+      # DBSubnetGroupName: !Ref DBSubnetGroup

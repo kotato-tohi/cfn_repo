@@ -178,7 +178,7 @@ Resources:
         - Key: Name
           Value: !Sub ${Env}-private-rtb1
   PrivateRouteDefault1a:
-    Type: AWS::EC2::Route
+    Type: AWS::EC2::Rout
     Properties:
       RouteTableId: !Ref PrivateRouteTable1a
       DestinationCidrBlock: 0.0.0.0/0

@@ -27,6 +27,14 @@ Parameters:
     Type: AWS::EC2::Image::Id
   S3BucketName:
     Type: String
+  RDSInstanceName:
+    Type: String
+
+  RDSMasterUser:
+    Type: String
+  RDSMasterUserPassword:
+    Type: String
+
   AlbCidr:
     Type: String
     AllowedPattern: ^(([1-9]?[0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([1-9]?[0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([1-2]?[0-9]|3[0-2])$
@@ -84,41 +92,11 @@ Resources:
       Port: 80
       TargetType: instance
       Targets:
-        - Id: !Ref PrivateInstance1a
-        - Id: !Ref PrivateInstance1c
+        - Id: !Ref PublicInstance1a
+        - Id: !Ref PublicInstance1c
         
   # Instance
-  ## Private Subnet Instance
-  PrivateInstance1a:
-    Type: AWS::EC2::Instance
-    Properties:
-      ImageId: !Ref ImageId
-      InstanceType: t2.micro
-      SubnetId:
-        Fn::ImportValue:
-            !Sub ${NetworkStack}-PrivateSubnet-1a
-      SecurityGroupIds:
-        - Fn::ImportValue:
-            !Sub ${SecurityStack}-SgInstance
-      Tags:
-        - Key: Name
-          Value: !Sub ${SystemName}-${Env}-private-instance-1a
-
-  PrivateInstance1c:
-    Type: AWS::EC2::Instance
-    Properties:
-      ImageId: !Ref ImageId
-      InstanceType: t2.micro
-      SubnetId:
-        Fn::ImportValue:
-            !Sub ${NetworkStack}-PrivateSubnet-1c
-      SecurityGroupIds:
-        - Fn::ImportValue:
-            !Sub ${SecurityStack}-SgInstance
-      Tags:
-        - Key: Name
-          Value: !Sub ${SystemName}-${Env}-private-instance-1c
-
+  ## Public Subnet Instance
   PublicInstance1a:
     Type: AWS::EC2::Instance
     Properties:
@@ -134,6 +112,57 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${SystemName}-${Env}-public-instance-1a
+
+  PublicInstance1c:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      KeyName: !Ref EC2InstanceKeyName
+      SubnetId:
+        Fn::ImportValue:
+            !Sub ${NetworkStack}-PublicSubnet-1c
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub ${SecurityStack}-SgBastionInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-public-instance-1c
+
+  ## Private Subnet Instance
+  PrivateInstance1a:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      KeyName: !Ref EC2InstanceKeyName
+      SubnetId:
+        Fn::ImportValue:
+            !Sub ${NetworkStack}-PrivateSubnet-1a
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub ${SecurityStack}-SgInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-private-instance-1a
+
+  PrivateInstance1c:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      KeyName: !Ref EC2InstanceKeyName
+      SubnetId:
+        Fn::ImportValue:
+            !Sub ${NetworkStack}-PrivateSubnet-1c
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub ${SecurityStack}-SgInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-private-instance-1c
+
+
   
   S3Bucket:
     Type: AWS::S3::Bucket
@@ -149,3 +178,34 @@ Resources:
 
   # RDS
   ## 
+
+# RDS用サブネットグループの作成
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "DB SubnetGroup"
+      DBSubnetGroupName: !Sub ${SystemName}-${Env}-rds-subnet-group
+      SubnetIds: 
+        - Fn::ImportValue:
+            !Sub ${NetworkStack}-PrivateSubnet-1a
+        - Fn::ImportValue:
+            !Sub ${NetworkStack}-PrivateSubnet-1c
+  
+  # RDSインスタンスの作成        
+  tire2Pub1aDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${SystemName}-${Env}-${RDSInstanceName}
+      Engine: MySQL
+      DBInstanceClass: db.t2.micro
+      EngineVersion: 8.0.23
+      AllocatedStorage: 20
+      StorageType: gp2
+      MasterUsername: !Ref RDSMasterUser
+      MasterUserPassword: !Ref RDSMasterUserPassword
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      PubliclyAccessible: false
+      AvailabilityZone: ap-northeast-1c
+      VPCSecurityGroups:
+        - Fn::ImportValue:
+            !Sub ${NetworkStack}-SgRDSInstance

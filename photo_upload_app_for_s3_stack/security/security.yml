@@ -104,6 +104,26 @@ Resources:
             Value: !Sub ${SystemName}-${Env}-instance-sg
     
 
+    ## RDS Instance 
+    SgRDSInstance:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: !Sub ${SystemName}-${Env}-rds-sg
+        GroupDescription: !Sub ${SystemName}-${Env}-rds-sg
+        VpcId: 
+          Fn::ImportValue:
+            !Sub ${NetworkStack}-Vpc
+        SecurityGroupIngress:
+          - CidrIp: 0.0.0.0/0
+            Description: inbound for ssh
+            FromPort: 22
+            IpProtocol: tcp
+            ToPort: 22
+        Tags:
+          - Key: Name
+            Value: !Sub ${SystemName}-${Env}-rds-sg
+      
+
 
     #IAM
     ## S3 Access Role
@@ -156,6 +176,8 @@ Resources:
         Path: "/"
         Roles:
         - !Ref S3AccessRole
+
+
   
 
 Outputs:
@@ -173,3 +195,8 @@ Outputs:
     Value: !Ref SgBastionInstance
     Export:
       Name: !Sub ${AWS::StackName}-SgBastionInstance
+
+  SgRDSInstance:
+    Value: !Ref SgRDSInstance
+    Export:
+      Name: !Sub ${AWS::StackName}-SgRDSInstance

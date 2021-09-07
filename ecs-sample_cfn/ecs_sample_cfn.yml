@@ -1,0 +1,352 @@
+# PublicとPrivateサブネットを構築
+## PublicサブネットにはNatGatewayを配置
+
+# PrivateサブネットはECS/fargateのデプロイネットワークとする
+## ECSはALBの配下に置き、コンテナへのアクセスは全てALBで受ける
+
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  Env:
+    Type: String
+    Default: test
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+      - test
+  
+  SystemName:
+    Type: String
+    Default: test_stack
+
+  EC2KeyName:
+    Type: String
+
+  ECSImageName:
+    Type: String
+    
+    
+
+Resources: 
+# VPC作成
+  BaseVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2VPC
+      
+
+# igw作成
+  BaseVPCIgw:
+    Type: AWS::EC2::InternetGateway
+    # Properties:
+    #   Tags:
+    #     - Key: Name
+    #       Value: tier2Igw
+
+#  igwのアタッチ     
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref BaseVPC
+      InternetGatewayId: !Ref BaseVPCIgw
+
+# public subnet 作成
+  BasePubSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref BaseVPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: 'true'
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2_pub_1a
+
+# public subnet 作成
+  BasePubSubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref BaseVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: 'true'
+      # Tags:
+      #   - Key: Name
+      #     Value: tier2_pub_1a
+
+# pribate subnet 作成
+  # BasePriSubnet1a:
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+  #     AvailabilityZone: ap-northeast-1a
+  #     VpcId: !Ref BaseVPC
+  #     CidrBlock: 10.0.1.0/24
+  #     MapPublicIpOnLaunch: 'false'
+  #     # Tags:
+  #     #   - Key: Name
+  #     #     Value: tier2_pri_1c
+
+
+# # NatGatewayの作成
+#   BaseVPCNatGateway:
+#     Type: AWS::EC2::NatGateway
+#     Properties:
+#       AllocationId: !GetAtt BaseVPCEIP.AllocationId
+#       ConnectivityType: public
+#       SubnetId: !Ref BasePubSubnet1a # Required
+
+
+# #EIPの作成
+
+#   BaseVPCEIP:
+#     Type: AWS::EC2::EIP
+#     Properties:
+#       Domain: vpc
+  
+
+# PublicSubnet用ルートテーブル作成
+  BaseVPCPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref BaseVPC
+      # Tags:
+      #   - Key: Name
+      #     Value: tire2VPC
+
+# # PrivateSubnet用ルートテーブル作成
+#   BaseVPCPrivateRouteTable:
+#     Type: AWS::EC2::RouteTable
+#     DependsOn: AttachGateway
+#     Properties:
+#       VpcId: !Ref BaseVPC
+
+#ルート追加 インターネット向け
+  BaseVPCPubRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref BaseVPCPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref BaseVPCIgw
+
+# # Natゲートウェイ向け
+#   BaseVPCPriRoute:
+#     Type: AWS::EC2::Route
+#     DependsOn: AttachGateway
+#     Properties:
+#       RouteTableId: !Ref BaseVPCPrivateRouteTable
+#       DestinationCidrBlock: 0.0.0.0/0
+#       NatGatewayId: !Ref BaseVPCNatGateway
+  
+# ルートテーブルをパブリックサブネットに紐付け
+  BaseVPCPubRouteAssocPubSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BasePubSubnet1a
+      RouteTableId: !Ref BaseVPCPublicRouteTable
+
+  BaseVPCPubRouteAssocPubSubnet2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BasePubSubnet1c
+      RouteTableId: !Ref BaseVPCPublicRouteTable
+
+
+
+# セキュリティグループ作成
+  BasePubSubnetSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: public Server sg
+      VpcId: !Ref BaseVPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0}
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+
+
+
+# セキュリティグループ作成
+  # BasePriSubnetSg:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Properties:
+  #     GroupDescription: private Server sg
+  #     VpcId: !Ref BaseVPC
+  #     SecurityGroupIngress:
+  #       - { IpProtocol: -1, SourceSecurityGroupId: !Ref BasePubSubnetSg}
+
+
+
+## ALB
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      # Name: "test-alb"
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref BasePubSubnetSg
+      Subnets:
+        - !Ref BasePubSubnet1a
+        - !Ref BasePubSubnet1c
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${SystemName}-alb
+        - Key: Env
+          Value: !Sub ${Env}
+        - Key: SystemName
+          Value: !Sub ${SystemName}
+  
+
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTg
+
+  AlbTg:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      VpcId: !Ref BaseVPC
+      Name: "test-tg"
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+
+
+# # EC2インスタンス作成
+#   BasePubEC2Instance:
+#     Type: AWS::EC2::Instance
+#     DeletionPolicy: Delete
+#     Properties:
+#       ImageId: ami-09ebacdc178ae23b7
+#       InstanceType: t2.micro
+#       KeyName: !Ref EC2KeyName
+#       SubnetId: !Ref BasePubSubnet1a
+#       BlockDeviceMappings:
+#         - DeviceName: /dev/xvda
+#           Ebs:
+#             VolumeSize: 8
+#             VolumeType: gp2
+
+#       SecurityGroupIds: 
+#         - !Ref BasePubSubnetSg
+
+# # EC2インスタンス作成
+#   BasePriEC2Instance:
+#     Type: AWS::EC2::Instance
+#     DeletionPolicy: Delete
+#     Properties:
+#       ImageId: ami-09ebacdc178ae23b7
+#       InstanceType: t2.micro
+#       KeyName: !Ref EC2KeyName
+#       SubnetId: !Ref BasePriSubnet1a
+#       BlockDeviceMappings:
+#         - DeviceName: /dev/xvda
+#           Ebs:
+#             VolumeSize: 8
+#             VolumeType: gp2
+
+#       SecurityGroupIds: 
+#         - !Ref BasePriSubnetSg
+
+
+
+  # ECSのタスク実行ようIAMRoleを定義
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Env}-${SystemName}-ECSTaskExecutionRolePolicy'
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ecs cluster作成
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName: !Sub '${Env}-${SystemName}-ecs-cluster'
+
+  # ecs タスク定義
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: "256"
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      Family: !Sub '${Env}-${SystemName}-ecs-family'
+      # IpcMode: "String"
+      Memory: "512"
+      NetworkMode: "awsvpc"
+      # PidMode: "String"
+      # PlacementConstraints:
+        # PlacementConstraints
+      # ProxyConfiguration:
+      #   ContainerName: "String"
+      #   ProxyConfigurationProperties:
+      #     -
+      #   Type: "String"
+      RequiresCompatibilities:
+        - FARGATE
+      # Tags:
+      #   Tags
+      # TaskRoleArn: "String"
+      # Volumes:
+      #   Volumes
+      ContainerDefinitions:
+        - Name: !Sub '${Env}-${SystemName}-ecs-container'
+          Image: !Sub ${ECSImageName}
+          # LogConfiguration:
+          #   LogDriver: awslogs
+          #   Options:
+          #     awslogs-group: !Ref ECSLogGroup
+          #     awslogs-region: !Ref 'AWS::Region'
+          #     awslogs-stream-prefix: !Ref ProjectName
+          MemoryReservation: 128
+          PortMappings:
+            - HostPort: 80
+              Protocol: tcp
+              ContainerPort: 80
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: AlbListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      # DesiredCount: !Ref ECSTaskDesiredCount
+      # DeploymentController:
+        # Type: CODE_DEPLOY
+      LaunchType: FARGATE
+      LoadBalancers:
+        - TargetGroupArn: !Ref AlbTg
+          ContainerPort: 80
+          ContainerName: !Sub '${Env}-${SystemName}-ecs-container'
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref BasePubSubnetSg
+          Subnets:
+            - !Ref BasePubSubnet1a
+            - !Ref BasePubSubnet1c
+      ServiceName: !Sub '${Env}-${SystemName}-ecs-service'
+      TaskDefinition: !Ref ECSTaskDefinition
+
+
+      

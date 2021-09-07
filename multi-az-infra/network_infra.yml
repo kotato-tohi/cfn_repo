@@ -1,0 +1,250 @@
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  EC2KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH public key
+    Default: common_key
+
+  SystemName:
+    Type: String
+    Default: MultiAZ
+
+  Env:
+    Type: String
+    Default: dev
+
+Resources: 
+# VPC作成
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-vpc
+
+# igw作成
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+        Tags:
+          - Key: Name
+            Value: !Sub ${SystemName}-${Env}-igw
+
+#  igwのアタッチ     
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Igw
+
+# public subnet 作成
+  PublicSubnet1AZ1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.10.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet1-1a
+
+  PublicSubnet2AZ1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet2-1a
+
+  PublicSubnet1AZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.20.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet1-1c
+
+  PublicSubnet2AZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.21.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet1-1c
+
+  PublicSubnet1AZ1d:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1d
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.30.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet1-1d
+
+  PublicSubnet2AZ1d:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1d
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.31.0/24
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pub-subnet2-1d
+
+
+# private subnet 作成
+  PrivateSubnet1AZ1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.12.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet1-1a
+
+  PrivateSubnet2AZ1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.13.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet2-1a
+
+  PrivateSubnet1AZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.22.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet1-1c
+          
+  PrivateSubnet2AZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.23.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet2-1c
+
+  PrivateSubnet1AZ1d:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1d
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.32.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet1-1d
+          
+  PrivateSubnet2AZ1d:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1d
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.33.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-pri-subnet2-1d
+
+# NATGateway
+  Ngw1PubSubnet1AZ1c:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EipForNgwPubSUbnet1AZ1a.AllocationId
+      ConnectivityType: public
+      SubnetId: !Ref PublicSubnet1AZ1c # Required
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-Ngw1-pub-subnet1-1c
+  # Ngw2PubSubnet1AZ1d:
+  #   Type: AWS::EC2::NatGateway
+  #   Properties:
+  #     AllocationId: !GetAtt EipForNgwPubSUbnet1AZ1d.AllocationId
+  #     ConnectivityType: public
+  #     SubnetId: !Ref PublicSubnet1AZ1d # Required
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub ${SystemName}-${Env}-Ngw2-pub-subnet1-1d
+
+
+#EIPの作成
+
+  EipForNgwPubSUbnet1AZ1a:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-eip1-for-ngw1
+
+  # EipForNgwPubSUbnet1AZ1d:
+  #   Type: AWS::EC2::EIP
+  #   Properties:
+  #     Domain: Vpc
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub ${SystemName}-${Env}-eip2-for-ngw1
+
+  
+
+# Public用ルートテーブル
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-public-route-table
+
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+
+      
+# Private用ルートテーブル
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: Ngw1PubSubnet1AZ1c
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Env}-private-route-table
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: Ngw1PubSubnet1AZ1c
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref Ngw1PubSubnet1AZ1c
