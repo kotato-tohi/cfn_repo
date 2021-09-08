@@ -26,7 +26,20 @@ Parameters:
 
   ECSImageName:
     Type: String
+
+  ECSTaskDesiredCount:
+    Type: Number
+    Default: 2
     
+  TaskMinContainerCount:
+    Type: Number
+    Default: 2
+
+  TaskMaxContainerCount:
+    Type: Number
+    Default: 4
+
+
     
 
 Resources: 
@@ -329,7 +342,7 @@ Resources:
     DependsOn: AlbListener
     Properties:
       Cluster: !Ref ECSCluster
-      # DesiredCount: !Ref ECSTaskDesiredCount
+      DesiredCount: !Ref ECSTaskDesiredCount
       # DeploymentController:
         # Type: CODE_DEPLOY
       LaunchType: FARGATE
@@ -348,5 +361,85 @@ Resources:
       ServiceName: !Sub '${Env}-${SystemName}-ecs-service'
       TaskDefinition: !Ref ECSTaskDefinition
 
+  
 
-      
+  ServiceAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: application-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${Env}-${SystemName}-autoscaling
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - application-autoscaling:*
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:PutMetricAlarm
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                Resource: '*'
+
+  ServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: !Ref TaskMinContainerCount
+      MaxCapacity: !Ref TaskMaxContainerCount
+      ResourceId: !Sub
+        - service/${EcsClusterName}/${EcsDefaultServiceName}
+        - EcsClusterName: !Ref ECSCluster
+          EcsDefaultServiceName: !Sub '${Env}-${SystemName}-ecs-service'
+      RoleARN: !GetAtt ServiceAutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+    DependsOn:
+      - ECSService
+
+  ServiceScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub '${Env}-${SystemName}-ScaleOutPolicy'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ServiceScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification: 
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 80
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 300
+
+
+      # StepScalingPolicyConfiguration:
+      #   AdjustmentType: ChangeInCapacity
+      #   Cooldown: 60
+      #   MetricAggregationType: Average
+      #   StepAdjustments:
+      #     - ScalingAdjustment: 1
+      #       MetricIntervalLowerBound: 0
+
+  # ServiceScaleInPolicy:
+  #   Type: AWS::ApplicationAutoScaling::ScalingPolicy
+  #   Properties:
+  #     PolicyName: !Sub '${Env}-${SystemName}-ScaleOutPolicy'
+  #     PolicyType: StepScaling
+  #     ScalingTargetId: !Ref ServiceScalingTarget
+  #     StepScalingPolicyConfiguration:
+  #       AdjustmentType: ChangeInCapacity
+  #       Cooldown: 60
+  #       MetricAggregationType: Average
+  #       StepAdjustments:
+  #         - ScalingAdjustment: -1
+  #           MetricIntervalUpperBound: 0
+
+
+
+  # ECSにCodeDeploy作成ようのロールを割り当てる
+  # CodeDeployを設定
+  # TragetGroupをもう一つつ作る 8080
+  
